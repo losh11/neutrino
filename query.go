@@ -18,6 +18,9 @@ import (
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/filterdb"
 	"github.com/lightninglabs/neutrino/pushtx"
+	ltcblockchain "github.com/ltcsuite/ltcd/blockchain"
+	ltcwire "github.com/ltcsuite/ltcd/wire"
+	ltcutil "github.com/ltcsuite/ltcutil"
 )
 
 var (
@@ -1212,15 +1215,46 @@ func (s *ChainService) GetBlock(blockHash chainhash.Hash,
 				// If this claims our block but doesn't pass
 				// the sanity check, the peer is trying to
 				// bamboozle us. Disconnect it.
-				if err := blockchain.CheckBlockSanity(
-					block,
-					// We don't need to check PoW because
-					// by the time we get here, it's been
-					// checked during header
-					// synchronization
-					s.chainParams.PowLimit,
-					s.timeSource,
-				); err != nil {
+
+				// if litecoin network, do litecoin specific checks
+				var err error
+				isLitecoin := func(magic wire.BitcoinNet) bool {
+					return ltcwire.BitcoinNet(magic) == ltcwire.MainNet ||
+						ltcwire.BitcoinNet(magic) == ltcwire.TestNet4 ||
+						ltcwire.BitcoinNet(magic) == ltcwire.SimNet
+				}
+				if isLitecoin(s.chainParams.Net) {
+					stubBytes, err := block.Bytes()
+					if err != nil {
+						log.Warnf("couldn't : %v", err)
+					}
+					ltcBlock, err := ltcutil.NewBlockFromBytes(stubBytes)
+					if err != nil {
+						log.Warnf("couldn't : %v", err)
+					}
+
+					err = ltcblockchain.CheckBlockSanity(
+						ltcBlock,
+						// We don't need to check PoW because
+						// by the time we get here, it's been
+						// checked during header
+						// synchronization
+						s.chainParams.PowLimit,
+						s.timeSource,
+					)
+				} else {
+					err = blockchain.CheckBlockSanity(
+						block,
+						// We don't need to check PoW because
+						// by the time we get here, it's been
+						// checked during header
+						// synchronization
+						s.chainParams.PowLimit,
+						s.timeSource,
+					)
+				}
+
+				if err != nil {
 					log.Warnf("Invalid block for %s "+
 						"received from %s -- "+
 						"disconnecting peer", blockHash,

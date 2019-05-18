@@ -23,6 +23,9 @@ import (
 	"github.com/lightninglabs/neutrino/blockntfns"
 	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightninglabs/neutrino/headerlist"
+	ltcblockchain "github.com/ltcsuite/ltcd/blockchain"
+	ltcwire "github.com/ltcsuite/ltcd/wire"
+	ltcutil "github.com/ltcsuite/ltcutil"
 )
 
 const (
@@ -2423,8 +2426,27 @@ func (b *blockManager) checkHeaderSanity(blockHeader *wire.BlockHeader,
 	stubBlock := btcutil.NewBlock(&wire.MsgBlock{
 		Header: *blockHeader,
 	})
-	err = blockchain.CheckProofOfWork(stubBlock,
-		blockchain.CompactToBig(diff))
+
+	isLitecoin := func(magic wire.BitcoinNet) bool {
+		return ltcwire.BitcoinNet(magic) == ltcwire.MainNet ||
+			ltcwire.BitcoinNet(magic) == ltcwire.TestNet4 ||
+			ltcwire.BitcoinNet(magic) == ltcwire.SimNet
+	}
+	if isLitecoin(b.server.chainParams.Net) {
+		stubBytes, err := stubBlock.Bytes()
+		if err != nil {
+			return err
+		}
+		ltcBlock, err := ltcutil.NewBlockFromBytes(stubBytes)
+		if err != nil {
+			return err
+		}
+		bigDiff := blockchain.CompactToBig(b.server.chainParams.PowLimitBits)
+		err = ltcblockchain.CheckProofOfWork(ltcBlock, bigDiff)
+	} else {
+		err = blockchain.CheckProofOfWork(stubBlock, blockchain.CompactToBig(diff))
+	}
+
 	if err != nil {
 		return err
 	}
